@@ -81,28 +81,58 @@ export async function POST(req: NextRequest) {
 
     // Check if message contains phone number
     const hasPhoneNumber = lower.match(/\b\d{10,11}\b/);
+    
+    // Check if message explicitly continues test result flow
+    // Message continues test result flow ONLY if it contains:
+    // - A phone number pattern, OR
+    // - Explicit reference like "my number is", "here is my phone number"
+    const continuesTestResultFlow = hasPhoneNumber || 
+      lower.match(/\b(my number is|here is my phone|phone number is|my phone|contact number)\b/);
 
     // Check keyword groups
     const isGreeting = GREETING_KEYWORDS.some(keyword => lower.includes(keyword));
     const isServiceQuestion = SERVICE_KEYWORDS.some(keyword => lower.includes(keyword));
     const isHoursQuestion = HOURS_KEYWORDS.some(keyword => lower.includes(keyword));
 
-    // Route intent - fixed order: active flows first (test result highest priority), then explicit intents, then inquiry routing
+    // Route intent - stateless-first: each message is classified independently
+    // Flows must be explicitly continued; otherwise they reset to avoid intent leakage.
     let intent: string;
     
-    // Step 1: Active test result flow (highest priority)
-    // If pendingTestResult is true, route directly to Test Result Agent BEFORE intent classification
-    // This prevents Inquiry Agent or other intents from intercepting the flow
-    // Handles both cases: when user sends phone number, and when user sends other messages
-    if (pendingTestResult) {
-      // Route to Test Result Agent - prevents Inquiry Agent interruption
+    // Step 1: Check if active test result flow should continue
+    // Only continue if message explicitly continues the flow (phone number or reference)
+    if (pendingTestResult && continuesTestResultFlow) {
+      // Message explicitly continues test result flow - route to Test Result Agent
       intent = 'test_result';
     } 
-    // Step 2: Active appointment flow
+    // Step 2: Hard reset if test result flow is active but message doesn't continue it
+    else if (pendingTestResult && !continuesTestResultFlow) {
+      // Message does NOT continue test result flow - clear state and re-classify
+      pendingTestResultLookup.delete(stateKey);
+      // Fall through to intent classification below
+      const classifiedIntent = classifyIntent(message);
+      
+      if (classifiedIntent === 'test_result') {
+        intent = 'test_result';
+      } else if (classifiedIntent === 'appointment') {
+        intent = 'appointment';
+      } else if (classifiedIntent === 'feedback') {
+        intent = 'feedback';
+      } else {
+        // Route to Inquiry Agent as safe default
+        if (isGreeting || isServiceQuestion) {
+          intent = 'inquiry';
+        } else if (isHoursQuestion) {
+          intent = 'inquiry';
+        } else {
+          intent = 'inquiry';
+        }
+      }
+    }
+    // Step 3: Active appointment flow
     else if (pendingAppointmentDetails && hasAppointmentSignals) {
       intent = 'appointment';
     } 
-    // Step 3: Explicit intent detection
+    // Step 4: Explicit intent detection (normal flow)
     else {
       const classifiedIntent = classifyIntent(message);
       
@@ -113,14 +143,13 @@ export async function POST(req: NextRequest) {
       } else if (classifiedIntent === 'feedback') {
         intent = 'feedback';
       } else {
-        // Step 4: Inquiry routing
-        // Do NOT route to Inquiry Agent if test result flow is active (already handled above)
+        // Step 5: Inquiry routing - safe default
         if (isGreeting || isServiceQuestion) {
           intent = 'inquiry';
         } else if (isHoursQuestion) {
-          intent = 'inquiry'; // Hours questions also go to Inquiry Agent
+          intent = 'inquiry';
         } else {
-          // Step 5: Final fallback - always route to Inquiry Agent
+          // Final fallback - always route to Inquiry Agent
           intent = 'inquiry';
         }
       }
@@ -130,7 +159,6 @@ export async function POST(req: NextRequest) {
         appointmentState.delete(stateKey);
         pendingAppointments.delete(stateKey);
       }
-      // Don't clear test result state here - it's handled in the test_result case
     }
     
     let response: string;
