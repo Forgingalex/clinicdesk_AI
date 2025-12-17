@@ -83,17 +83,21 @@ export async function POST(req: NextRequest) {
     const isServiceQuestion = SERVICE_KEYWORDS.some(keyword => lower.includes(keyword));
     const isHoursQuestion = HOURS_KEYWORDS.some(keyword => lower.includes(keyword));
 
-    // Route intent - fixed order: active flows first, then explicit intents, then inquiry routing
+    // Route intent - fixed order: active flows first (test result highest priority), then explicit intents, then inquiry routing
     let intent: string;
     
-    // Step 1: Active flow check
-    if (pendingTestResult && hasPhoneNumber) {
+    // Step 1: Active test result flow (highest priority)
+    if (pendingTestResult) {
+      // If test result flow is active, route to Test Result Agent regardless of message content
+      // This prevents Inquiry Agent or other intents from intercepting
       intent = 'test_result';
-      pendingTestResultLookup.delete(stateKey);
-    } else if (pendingAppointmentDetails && hasAppointmentSignals) {
+    } 
+    // Step 2: Active appointment flow
+    else if (pendingAppointmentDetails && hasAppointmentSignals) {
       intent = 'appointment';
-    } else {
-      // Step 2: Explicit intent detection
+    } 
+    // Step 3: Explicit intent detection
+    else {
       const classifiedIntent = classifyIntent(message);
       
       if (classifiedIntent === 'test_result') {
@@ -103,25 +107,23 @@ export async function POST(req: NextRequest) {
       } else if (classifiedIntent === 'feedback') {
         intent = 'feedback';
       } else {
-        // Step 3: Inquiry routing
+        // Step 4: Inquiry routing
         if (isGreeting || isServiceQuestion) {
           intent = 'inquiry';
         } else if (isHoursQuestion) {
           intent = 'inquiry'; // Hours questions also go to Inquiry Agent
         } else {
-          // Step 4: Final fallback - always route to Inquiry Agent
+          // Step 5: Final fallback - always route to Inquiry Agent
           intent = 'inquiry';
         }
       }
       
-      // Clear state if user changes intent
+      // Clear state if user changes intent (only when not in active flows)
       if (intent !== 'appointment' || !hasAppointmentSignals) {
         appointmentState.delete(stateKey);
         pendingAppointments.delete(stateKey);
       }
-      if (intent !== 'test_result' || !hasPhoneNumber) {
-        pendingTestResultLookup.delete(stateKey);
-      }
+      // Don't clear test result state here - it's handled in the test_result case
     }
     
     let response: string;
@@ -148,10 +150,11 @@ export async function POST(req: NextRequest) {
       
       case 'test_result':
         response = await handleTestResult(message, patientId);
-        // Set flag if agent requests phone number
+        // Set flag if agent requests phone number (indicates flow is still active)
         if (response.includes('I need your phone number') || response.includes('Please provide it')) {
           pendingTestResultLookup.set(stateKey, true);
         } else {
+          // Final response received (result found or not found) - clear state
           pendingTestResultLookup.delete(stateKey);
         }
         break;
