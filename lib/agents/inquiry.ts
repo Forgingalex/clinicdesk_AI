@@ -37,5 +37,6 @@ export async function handleInquiry(message: string, context?: string): Promise<
     return response;
   }
   
-  return 'Our clinic is open Monday to Friday from 8am to 6pm, and Saturday from 9am to 2pm. Would you like to book an appointment?';
+  // Generic fallback - Inquiry Agent handles all non-explicit intents
+  return 'How can I help you today?';
 }

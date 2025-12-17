@@ -7,6 +7,11 @@ import { handleFeedback } from '@/lib/agents/feedback';
 import { getPatientContext, getPatientByPhone } from '@/lib/agents/memory';
 import db from '@/lib/db';
 
+// Explicit keyword groups for intent routing
+const GREETING_KEYWORDS = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening'];
+const SERVICE_KEYWORDS = ['service', 'services', 'offer', 'provide', 'treat', 'clinic services'];
+const HOURS_KEYWORDS = ['open', 'opening', 'close', 'closing', 'hours', 'time', 'saturday', 'sunday', 'weekend'];
+
 // In-memory state for tracking appointment booking flow
 const appointmentState = new Map<number | string, boolean>();
 const pendingAppointments = new Map<number | string, {
@@ -73,15 +78,42 @@ export async function POST(req: NextRequest) {
     // Check if message contains phone number
     const hasPhoneNumber = lower.match(/\b\d{10,11}\b/);
 
-    // Route intent - check test result lookup state first, then appointment state
+    // Check keyword groups
+    const isGreeting = GREETING_KEYWORDS.some(keyword => lower.includes(keyword));
+    const isServiceQuestion = SERVICE_KEYWORDS.some(keyword => lower.includes(keyword));
+    const isHoursQuestion = HOURS_KEYWORDS.some(keyword => lower.includes(keyword));
+
+    // Route intent - fixed order: active flows first, then explicit intents, then inquiry routing
     let intent: string;
+    
+    // Step 1: Active flow check
     if (pendingTestResult && hasPhoneNumber) {
       intent = 'test_result';
       pendingTestResultLookup.delete(stateKey);
     } else if (pendingAppointmentDetails && hasAppointmentSignals) {
       intent = 'appointment';
     } else {
-      intent = classifyIntent(message);
+      // Step 2: Explicit intent detection
+      const classifiedIntent = classifyIntent(message);
+      
+      if (classifiedIntent === 'test_result') {
+        intent = 'test_result';
+      } else if (classifiedIntent === 'appointment') {
+        intent = 'appointment';
+      } else if (classifiedIntent === 'feedback') {
+        intent = 'feedback';
+      } else {
+        // Step 3: Inquiry routing
+        if (isGreeting || isServiceQuestion) {
+          intent = 'inquiry';
+        } else if (isHoursQuestion) {
+          intent = 'inquiry'; // Hours questions also go to Inquiry Agent
+        } else {
+          // Step 4: Final fallback - always route to Inquiry Agent
+          intent = 'inquiry';
+        }
+      }
+      
       // Clear state if user changes intent
       if (intent !== 'appointment' || !hasAppointmentSignals) {
         appointmentState.delete(stateKey);
