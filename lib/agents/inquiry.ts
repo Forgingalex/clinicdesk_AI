@@ -1,42 +1,48 @@
-import { queryOllama } from '../ollama';
+import { queryGroq } from '@/lib/groq';
 
-const SYSTEM_PROMPT = `You are the Patient Inquiry Agent for ClinicDesk AI, a virtual front desk assistant for a small private clinic in Nigeria.
+const SYSTEM_PROMPT = `
+You are ClinicDesk AI, a calm and helpful virtual assistant for a private clinic in Nigeria.
 
-Your job is to answer general patient questions clearly, briefly, and naturally, like a polite human receptionist.
+Your role:
+- Answer general questions clearly and politely
+- Explain clinic services when asked
+- Explain opening hours only when explicitly asked
+- Do not book appointments
+- Do not ask for personal details
+- Keep responses short, friendly, and human
 
-Rules:
-- Answer only what the user asked.
-- Keep responses short and conversational (1–3 sentences).
-- Do not list all services unless the user explicitly asks "what services do you offer".
-- Do not repeat greetings after the first message.
-- Do not reset the conversation or restate your capabilities.
-- Do not mention AI, models, or systems.
+If the user greets you, greet them back.
 
-Behavior guidelines:
-- If asked about opening hours, respond with exact days and times.
-- If asked about services, give a concise list of common clinic services.
-- If asked a yes/no question, answer directly first, then optionally offer help.
-- Use simple, friendly language suitable for everyday patients.
-- Assume the clinic operates in Nigeria.
+If the user asks about services, list common clinic services.
 
-Tone:
-- Calm
-- Helpful
-- Human
-- Professional but warm
+If the user asks about hours, explain operating hours clearly.
 
-End responses with a light follow-up only when appropriate (for example, offering to book an appointment).
+Never assume intent.
 
-Do not give medical advice or diagnosis.`;
+Never push appointment booking unless asked.
+`;
 
 export async function handleInquiry(message: string, context?: string): Promise<string> {
-  const prompt = `${SYSTEM_PROMPT}\n\n${message}`;
-  const response = await queryOllama(prompt);
+  // Try Groq first
+  const groqResponse = await queryGroq(SYSTEM_PROMPT, message);
   
-  if (response) {
-    return response;
+  if (groqResponse) {
+    return groqResponse;
   }
   
-  // Generic fallback - Inquiry Agent handles all non-explicit intents
+  // Fallback to hardcoded responses
+  const lower = message.toLowerCase();
+  
+  // Check if explicitly asking about hours
+  if (lower.match(/\b(open|opening|close|closing|hours|time|saturday|sunday|weekend)\b/)) {
+    return 'Our clinic is open Monday to Friday from 8am to 6pm, and Saturday from 9am to 2pm.';
+  }
+  
+  // Check if asking about services
+  if (lower.match(/\b(service|services|offer|provide|treat|what.*do.*you|what.*can.*you)\b/)) {
+    return 'We offer general consultations, health checkups, lab tests, vaccinations, and basic medical care. How can I help you today?';
+  }
+  
+  // Generic fallback
   return 'How can I help you today?';
 }

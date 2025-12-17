@@ -1,12 +1,24 @@
 import db from '../db';
+import { queryGroq } from '@/lib/groq';
 
-// Feedback and Complaint Agent - Deterministic, non-LLM based
-// Fixed response template for all feedback handling
+const SYSTEM_PROMPT = `
+You are ClinicDesk AI handling patient feedback and complaints.
+
+Your role:
+- Respond with empathy
+- Acknowledge frustration or appreciation
+- Reassure the patient their feedback is recorded
+- Do not give medical advice
+- Do not suggest appointments unless asked
+- Keep responses calm, respectful, and human
+
+Do not mention internal systems or dashboards.
+`;
 
 export async function handleFeedback(message: string, patientId: number | null): Promise<{ response: string; feedback?: any }> {
   const lower = message.toLowerCase();
   
-  // Simple sentiment classification
+  // Simple sentiment classification (deterministic - unchanged)
   const positiveWords = ['good', 'great', 'excellent', 'satisfied', 'happy', 'love', 'thank', 'appreciate'];
   const negativeWords = ['bad', 'terrible', 'awful', 'worst', 'unhappy', 'disappointed', 'angry', 'complaint'];
   const urgentWords = ['emergency', 'urgent', 'immediate', 'serious', 'critical', 'unsafe'];
@@ -24,21 +36,26 @@ export async function handleFeedback(message: string, patientId: number | null):
     urgent = 1;
   }
 
-  // Store feedback
+  // Store feedback (unchanged)
   const result = db.prepare(`
     INSERT INTO Feedback (patientId, sentiment, message, urgent)
     VALUES (?, ?, ?, ?)
   `).run(patientId, sentiment, message, urgent);
 
-  // Fixed deterministic response template - no LLM calls
-  // Use same response for negative and neutral feedback
+  // Use Groq for response generation, fallback to deterministic template
+  const aiResponse = await queryGroq(SYSTEM_PROMPT, message);
+  
   let response: string;
   
-  if (sentiment === 'positive') {
-    response = 'Thank you for your feedback. We appreciate your kind words. Your feedback has been recorded and will be reviewed by our team.';
+  if (aiResponse) {
+    response = aiResponse;
   } else {
-    // Fixed response template for negative and neutral feedback
-    response = 'Thank you for sharing your feedback. We\'re sorry about your experience, and your concern has been recorded and will be shared with our clinic team to help improve our service.';
+    // Fallback to deterministic response template
+    if (sentiment === 'positive') {
+      response = 'Thank you for your feedback. We appreciate your kind words. Your feedback has been recorded and will be reviewed by our team.';
+    } else {
+      response = 'Thank you for sharing your feedback. We\'re sorry about your experience, and your concern has been recorded and will be shared with our clinic team to help improve our service.';
+    }
   }
 
   return {
