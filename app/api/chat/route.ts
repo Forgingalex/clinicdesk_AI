@@ -91,9 +91,11 @@ export async function POST(req: NextRequest) {
     let intent: string;
     
     // Step 1: Active test result flow (highest priority)
+    // If pendingTestResult is true, route directly to Test Result Agent BEFORE intent classification
+    // This prevents Inquiry Agent or other intents from intercepting the flow
+    // Handles both cases: when user sends phone number, and when user sends other messages
     if (pendingTestResult) {
-      // If test result flow is active, route to Test Result Agent regardless of message content
-      // This prevents Inquiry Agent or other intents from intercepting
+      // Route to Test Result Agent - prevents Inquiry Agent interruption
       intent = 'test_result';
     } 
     // Step 2: Active appointment flow
@@ -112,6 +114,7 @@ export async function POST(req: NextRequest) {
         intent = 'feedback';
       } else {
         // Step 4: Inquiry routing
+        // Do NOT route to Inquiry Agent if test result flow is active (already handled above)
         if (isGreeting || isServiceQuestion) {
           intent = 'inquiry';
         } else if (isHoursQuestion) {
@@ -155,7 +158,10 @@ export async function POST(req: NextRequest) {
       case 'test_result':
         response = await handleTestResult(message, patientId);
         // Set flag if agent requests phone number (indicates flow is still active)
-        if (response.includes('I need your phone number') || response.includes('Please provide it')) {
+        // Check for the exact phrases the Test Result Agent uses when asking for phone number
+        const responseLower = response.toLowerCase();
+        if (responseLower.includes('i need your phone number') || 
+            responseLower.includes('please provide it')) {
           pendingTestResultLookup.set(stateKey, true);
         } else {
           // Final response received (result found or not found) - clear state
