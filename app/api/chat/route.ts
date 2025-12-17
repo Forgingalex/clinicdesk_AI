@@ -5,6 +5,7 @@ import { handleAppointment } from '@/lib/agents/appointment';
 import { handleTestResult } from '@/lib/agents/results';
 import { handleFeedback } from '@/lib/agents/feedback';
 import { getPatientContext, getPatientByPhone } from '@/lib/agents/memory';
+import { checkGroqHealth } from '@/lib/groq';
 import db from '@/lib/db';
 
 // Explicit keyword groups for intent routing
@@ -30,6 +31,9 @@ export async function POST(req: NextRequest) {
     if (!message || typeof message !== 'string') {
       return NextResponse.json({ error: 'Invalid message' }, { status: 400 });
     }
+
+    // Check Groq health once per request
+    const groqAvailable = await checkGroqHealth();
 
     // Store user message
     const userMsgId = db.prepare(`
@@ -160,13 +164,13 @@ export async function POST(req: NextRequest) {
         break;
       
       case 'feedback':
-        const feedbackResult = await handleFeedback(message, patientId);
+        const feedbackResult = await handleFeedback(message, patientId, groqAvailable);
         response = feedbackResult.response;
         break;
       
       case 'inquiry':
       default:
-        response = await handleInquiry(message, context);
+        response = await handleInquiry(message, context, groqAvailable);
         break;
     }
 

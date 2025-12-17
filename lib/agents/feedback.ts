@@ -15,7 +15,7 @@ Your role:
 Do not mention internal systems or dashboards.
 `;
 
-export async function handleFeedback(message: string, patientId: number | null): Promise<{ response: string; feedback?: any }> {
+export async function handleFeedback(message: string, patientId: number | null, groqAvailable?: boolean): Promise<{ response: string; feedback?: any }> {
   const lower = message.toLowerCase();
   
   // Simple sentiment classification (deterministic - unchanged)
@@ -50,11 +50,16 @@ export async function handleFeedback(message: string, patientId: number | null):
   if (aiResponse) {
     response = aiResponse;
   } else {
-    // Fallback to deterministic response template
-    if (sentiment === 'positive') {
-      response = 'Thank you for your feedback. We appreciate your kind words. Your feedback has been recorded and will be reviewed by our team.';
+    // If Groq was expected to be available but failed, show visible warning
+    if (groqAvailable === false) {
+      response = '⚠️ Feedback recorded successfully, but AI-generated response is temporarily unavailable.';
     } else {
-      response = 'Thank you for sharing your feedback. We\'re sorry about your experience, and your concern has been recorded and will be shared with our clinic team to help improve our service.';
+      // Fallback to deterministic response template (only if groqAvailable is undefined/true but call failed)
+      if (sentiment === 'positive') {
+        response = 'Thank you for your feedback. We appreciate your kind words. Your feedback has been recorded and will be reviewed by our team.';
+      } else {
+        response = 'Thank you for sharing your feedback. We\'re sorry about your experience, and your concern has been recorded and will be shared with our clinic team to help improve our service.';
+      }
     }
   }
 

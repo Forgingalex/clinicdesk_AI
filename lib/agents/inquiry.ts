@@ -22,7 +22,7 @@ Never assume intent.
 Never push appointment booking unless asked.
 `;
 
-export async function handleInquiry(message: string, context?: string): Promise<string> {
+export async function handleInquiry(message: string, context?: string, groqAvailable?: boolean): Promise<string> {
   // Try Groq first
   const groqResponse = await queryGroq(SYSTEM_PROMPT, message);
   
@@ -30,7 +30,12 @@ export async function handleInquiry(message: string, context?: string): Promise<
     return groqResponse;
   }
   
-  // Fallback to hardcoded responses
+  // If Groq was expected to be available but failed, show visible warning
+  if (groqAvailable === false) {
+    return '⚠️ AI language engine is temporarily unavailable. The system is running in fallback mode.';
+  }
+  
+  // Fallback to hardcoded responses (only if groqAvailable is undefined/true but call failed)
   const lower = message.toLowerCase();
   
   // Check if explicitly asking about hours
